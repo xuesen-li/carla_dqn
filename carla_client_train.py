@@ -20,12 +20,14 @@ import carla
 
 ############# constants ############
 EPISODES = 100
+EPSILON_DECAY = 0.95 ## 0.95 0.9975 99975
+MIN_EPSILON = 0.001
 
-SHOW_PREVIEW = True
-SHOW_PREVIEW_EVERY = 10
+NUMBER_OF_ACTIONS = 3
+
 IM_WIDTH = 640
 IM_HEIGHT = 480
-SECONDS_PER_EPISODE = 60
+SECONDS_PER_EPISODE = 10
 REPLAY_MEMORY_SIZE = 5_000
 MIN_REPLAY_MEMORY_SIZE = 1_000
 MINIBATCH_SIZE = 16
@@ -35,14 +37,15 @@ UPDATE_TARGET_EVERY = 5
 MODEL_NAME = "Xception"
 
 MEMORY_FRACTION = 0.4
-MIN_REWARD = -200
+MIN_REWARD = -200.0
 
 DISCOUNT = 0.99
 epsilon = 1
-EPSILON_DECAY = 0.95 ## 0.9975 99975
-MIN_EPSILON = 0.001
 
 AGGREGATE_STATS_EVERY = 10
+
+SHOW_PREVIEW = True
+SHOW_PREVIEW_EVERY = 10
 
 ############# class definition ############
 class CarEnv:
@@ -116,11 +119,17 @@ class CarEnv:
 
     def step(self, action):
         if action == 0:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=-0.5*self.STEER_AMT))
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=-0.5*self.STEER_AMT))
         elif action == 1:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer= 0))
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer= 0))
         elif action == 2:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=0.5*self.STEER_AMT))
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=0.5*self.STEER_AMT))
+        elif action == 3:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=-0.5*self.STEER_AMT))   
+        elif action == 4:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0))
+        elif action == 5:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.5*self.STEER_AMT))
 
         v = self.vehicle.get_velocity()
         kmh = int(3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))
@@ -131,13 +140,16 @@ class CarEnv:
         if len(self.collision_hist) != 0:
             done = True
             reward = -200
-        # elif kmh < 50 or abs(w.z) > 50: # w[2] is the angular velocity around z
         elif kmh < 50:
             done = False
-            reward = -1
+            reward = -1.0
         else:
             done = False
-            reward = 1
+            reward = 1.0
+            # if abs(w.z) < 50:
+            #     reward = 1.0 / 200.0
+            # else:
+            #     reward = 0.5 / 200.0
 
         if self.episode_start + SECONDS_PER_EPISODE < time.time():
             done = True
@@ -153,7 +165,6 @@ class DQNAgent:
 
         self.replay_memory = deque(maxlen=REPLAY_MEMORY_SIZE)
 
-        # self.tensorboard = ModifiedTensorBoard(log_dir=f"logs/{MODEL_NAME}-{int(time.time())}")
         self.target_update_counter = 0
        
         self.terminate = False
@@ -168,7 +179,7 @@ class DQNAgent:
             base_model = Xception(weights=None, include_top=False, input_shape=(IM_HEIGHT, IM_WIDTH,3))
             x = base_model.output
             x = GlobalAveragePooling2D()(x)
-            predictions = Dense(3, activation="linear")(x)
+            predictions = Dense(NUMBER_OF_ACTIONS, activation="linear")(x)
             model = Model(inputs=base_model.input, outputs=predictions)
             model.compile(loss="mse", optimizer=Adam(learning_rate=0.001), metrics=["accuracy"])
         
@@ -190,7 +201,7 @@ class DQNAgent:
 
         #     x = base_model.output
         #     x = GlobalAveragePooling2D()(x)
-        #     predictions = Dense(3, activation="linear")(x)
+        #     predictions = Dense(6, activation="linear")(x)
         #     model = Model(inputs=base_model.input, outputs=predictions)
             model.compile(loss="mse", optimizer=Adam(learning_rate=0.001), metrics=["accuracy"])            
         
@@ -243,7 +254,7 @@ class DQNAgent:
 
     def train_in_loop(self):
         X = np.random.uniform(size=(1, IM_HEIGHT, IM_WIDTH, 3)).astype(np.float32)
-        y = np.random.uniform(size=(1, 3)).astype(np.float32)
+        y = np.random.uniform(size=(1, NUMBER_OF_ACTIONS)).astype(np.float32)
         self.model.fit(X,y, verbose=False, batch_size=1)
 
         self.training_initialized = True
@@ -318,7 +329,7 @@ if __name__ == '__main__':
                     action = np.argmax(agent.get_qs(current_state))
                 else:
                     # Get random action
-                    action = np.random.randint(0, 3)
+                    action = np.random.randint(0, NUMBER_OF_ACTIONS)
                     # This takes no time, so we add a delay matching 60 FPS (prediction above takes longer)
                     time.sleep(1/FPS)
 
