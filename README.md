@@ -22,3 +22,6 @@ Python dependencies can be install with `conda env create -f environment.yml`
 - play: `python carla_client_play.py`
 
 
+### Reference
+
+- https://github.com/Sentdex/Carla-RL
